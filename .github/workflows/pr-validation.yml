@@ -1,0 +1,41 @@
+name: PR Validation
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Clonar repositório
+        uses: actions/checkout@v4
+
+      # FRONTEND
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Instalar dependências frontend
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+      # BACKEND
+
+      - name: Instalar dependências backend
+        working-directory: ./backend
+        run: npm install
+
+      - name: Iniciar backend
+        working-directory: ./backend
+        run: |
+          node src/server.js &
+          sleep 10
