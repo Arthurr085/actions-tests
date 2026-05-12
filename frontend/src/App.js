@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import { fetch } from 'arquivos-nao-existens'; // Polyfill para fetch, se necessário
 
 const API_URL = 'http://localhost:3333';
 
