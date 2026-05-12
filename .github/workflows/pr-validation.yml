@@ -1,49 +1,104 @@
+# Nome geral da action/workflow
+# Esse nome aparece na aba "Actions" do GitHub
 name: PR Validation
 
+# Evento que dispara a action
 on:
+  # Executa quando existir atividade em Pull Request
   pull_request:
+    # Apenas PRs cujo destino é a branch main
     branches:
       - main
 
+# Lista de jobs da pipeline
 jobs:
+  # ID interno do job
+  # É esse nome que aparece na branch protection
   validate:
+    # Nome visual do job no GitHub
+    name: Validate Frontend and Backend
+
+    # Sistema operacional da máquina virtual criada pelo GitHub
     runs-on: ubuntu-latest
+
+    # Tempo máximo da execução
+    # Evita pipelines travadas infinitamente
     timeout-minutes: 5
 
+    # Passos executados em sequência
     steps:
+      # Clona o repositório na VM do GitHub
       - name: Clonar repositório
         uses: actions/checkout@v4
 
+      # Instala o Node.js na máquina virtual
       - name: Instalar Node.js
         uses: actions/setup-node@v4
+
+        # Configurações da action setup-node
         with:
+          # Versão do Node utilizada
           node-version: 22
+
+          # Habilita cache automático do npm
+          # Isso acelera MUITO as próximas execuções
           cache: "npm"
+
+          # Como existem 2 package-locks,
+          # precisamos informar ambos
           cache-dependency-path: |
             frontend/package-lock.json
             backend/package-lock.json
 
+      # =========================================================
       # FRONTEND
+      # =========================================================
 
+      # Instala dependências do frontend
       - name: Instalar dependências frontend
+
+        # Executa dentro da pasta frontend
         working-directory: ./frontend
+
+        # npm ci:
+        # - mais rápido
+        # - reproduzível
+        # - ideal para CI/CD
         run: npm ci
 
+      # Gera build do frontend
+      # Se houver erro React/Webpack/Babel/import,
+      # a pipeline falha aqui
       - name: Build frontend
         working-directory: ./frontend
         run: npm run build
 
+      # =========================================================
       # BACKEND
+      # =========================================================
 
+      # Instala dependências do backend
       - name: Instalar dependências backend
         working-directory: ./backend
         run: npm ci
 
+      # Inicia o backend temporariamente
       - name: Iniciar backend
         working-directory: ./backend
+
+        # "|" permite múltiplas linhas shell
         run: |
+
+          # Inicia backend em background
+          # O "&" evita travar a pipeline
           node src/server.js &
+
+          # Espera alguns segundos
+          # para o servidor iniciar
           sleep 5
 
+      # Faz uma requisição HTTP real no backend
+      # Se a API não responder,
+      # a pipeline falha
       - name: Testar backend
         run: curl http://localhost:3333
