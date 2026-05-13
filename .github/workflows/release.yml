@@ -1,0 +1,41 @@
+name: Create Release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Clonar repositório
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Ler versão do package.json
+        id: package-version
+        run: |
+          VERSION=$(node -p "require('./frontend/package.json').version")
+          echo "version=v$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Criar tag
+        run: |
+          git tag ${{ steps.package-version.outputs.version }}
+          git push origin ${{ steps.package-version.outputs.version }}
+
+      - name: Criar release no GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.package-version.outputs.version }}
+          name: Release ${{ steps.package-version.outputs.version }}
+          generate_release_notes: true
