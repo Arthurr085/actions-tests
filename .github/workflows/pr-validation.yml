@@ -31,6 +31,44 @@ jobs:
       - name: Clonar repositório
         uses: actions/checkout@v4
 
+        with:
+          # Necessário para comparar branches
+          fetch-depth: 0
+
+      # Verifica se a versão do frontend/package.json
+      # foi alterada em relação à branch main
+      #
+      # Isso impede:
+      # - releases duplicadas
+      # - esquecer bump de versão
+      # - merge sem nova versão
+      #
+      # Caso a versão seja igual,
+      # a pipeline falha e o merge é bloqueado
+      - name: Validar alteração de versão frontend
+        run: |
+
+          # Versão atual da PR
+          PR_VERSION=$(node -p "require('./frontend/package.json').version")
+
+          # Busca branch main
+          git fetch origin main
+
+          # Extrai package.json da main
+          git show origin/main:frontend/package.json > main-package.json
+
+          # Versão atual da main
+          MAIN_VERSION=$(node -p "require('./main-package.json').version")
+
+          echo "Versão PR: $PR_VERSION"
+          echo "Versão Main: $MAIN_VERSION"
+
+          # Valida se houve alteração
+          if [ "$PR_VERSION" = "$MAIN_VERSION" ]; then
+            echo "ERRO: A versão do sistema não foi alterada. Atualize o campo 'version' do frontend/package.json para prosseguir."
+            exit 1
+          fi
+
       # Instala o Node.js na máquina virtual
       - name: Instalar Node.js
         uses: actions/setup-node@v4
