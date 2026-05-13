@@ -1,41 +1,124 @@
+# Nome do workflow/action
+# Aparece na aba "Actions" do GitHub
 name: Create Release
 
+# Evento que dispara a action
 on:
+  # Executa quando houver push na branch main
+  # Como vocês usam PR, isso acontecerá após o merge
   push:
     branches:
       - main
 
+# Lista de jobs da pipeline
 jobs:
+  # ID interno do job
   release:
+    # Nome visual exibido no GitHub
     name: Create GitHub Release
+
+    # Sistema operacional da VM temporária
     runs-on: ubuntu-latest
 
+    # Permissões do GITHUB_TOKEN
+    # Necessário para:
+    # - criar tags
+    # - criar releases
     permissions:
       contents: write
 
+    # Passos executados em sequência
     steps:
+      # Clona o repositório na VM do GitHub
       - name: Clonar repositório
         uses: actions/checkout@v4
 
+      # Instala Node.js
       - name: Instalar Node.js
         uses: actions/setup-node@v4
         with:
+          # Versão do Node utilizada
           node-version: 22
 
-      - name: Ler versão do package.json
+      # Lê a versão do frontend/package.json
+      #
+      # Exemplo:
+      # "version": "1.0.0"
+      #
+      # Resultado:
+      # v1.0.0
+      #
+      # Esse valor será reutilizado
+      # nos próximos steps
+      - name: Ler versão do frontend
         id: package-version
         run: |
+
+          # Lê o campo "version" do package.json
           VERSION=$(node -p "require('./frontend/package.json').version")
+
+          # Salva valor para reutilização futura
           echo "version=v$VERSION" >> $GITHUB_OUTPUT
 
+      # Verifica se a tag já existe
+      #
+      # Isso impede:
+      # - releases duplicadas
+      # - versões repetidas
+      # - sobrescrever releases antigas
+      #
+      # Caso a versão já exista,
+      # a pipeline falha com mensagem amigável
+      - name: Verificar se versão já existe
+        run: |
+
+          # Atualiza lista de tags do repositório
+          git fetch --tags
+
+          # Verifica se já existe uma tag
+          # com a mesma versão
+          if git rev-parse "${{ steps.package-version.outputs.version }}" >/dev/null 2>&1
+          then
+            echo "ERRO: Essa versão já existe!"
+            exit 1
+          fi
+
+      # Cria uma tag Git automaticamente
+      #
+      # Exemplo:
+      # v1.0.0
+      #
+      # Isso marca oficialmente a versão
+      # do sistema no histórico do Git
       - name: Criar tag
         run: |
+
+          # Cria tag local
           git tag ${{ steps.package-version.outputs.version }}
+
+          # Envia tag para o GitHub
           git push origin ${{ steps.package-version.outputs.version }}
 
+      # Cria uma Release no GitHub
+      #
+      # A release aparecerá na aba:
+      # GitHub -> Releases
+      #
+      # Com:
+      # - histórico
+      # - changelog
+      # - data
+      # - tag associada
       - name: Criar release no GitHub
         uses: softprops/action-gh-release@v2
+
         with:
+          # Tag utilizada na release
           tag_name: ${{ steps.package-version.outputs.version }}
+
+          # Nome visual da release
           name: Release ${{ steps.package-version.outputs.version }}
+
+          # Faz o GitHub gerar changelog automático
+          # baseado nos commits e PRs
           generate_release_notes: true
