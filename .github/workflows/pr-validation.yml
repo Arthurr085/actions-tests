@@ -27,7 +27,7 @@ jobs:
 
     # Passos executados em sequência
     steps:
-      # Clona o repositório na VM do GitHub
+      # Clona repositório
       - name: Clonar repositório
         uses: actions/checkout@v4
 
@@ -35,17 +35,49 @@ jobs:
           # Necessário para comparar branches
           fetch-depth: 0
 
-      # Verifica se a versão do frontend/package.json
-      # foi alterada em relação à branch main
+      # =========================================================
+      # NODE
+      # =========================================================
+
+      # Node é instalado antes da validação
+      # pois utilizaremos scripts Node.js
+      # para validar versão semver
+      - name: Instalar Node.js
+        uses: actions/setup-node@v4
+
+        with:
+          node-version: 22
+
+          cache: "npm"
+
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
+      # =========================================================
+      # VALIDAÇÃO DE VERSÃO
+      # =========================================================
+
+      # Verifica:
       #
-      # Isso impede:
-      # - releases duplicadas
-      # - esquecer bump de versão
-      # - merge sem nova versão
+      # - se a versão foi alterada
+      # - se a nova versão é maior
+      # - impede downgrade
+      # - impede mesma versão
       #
-      # Caso a versão seja igual,
-      # a pipeline falha e o merge é bloqueado
-      - name: Validar alteração de versão frontend
+      # Exemplos válidos:
+      # 1.0.0 -> 1.0.1
+      # 1.0.1 -> 1.1.0
+      # 1.1.0 -> 2.0.0
+      #
+      # Exemplos inválidos:
+      # 1.0.0 -> 1.0.0
+      # 1.1.0 -> 1.0.9
+      #
+      # Caso inválido:
+      # a pipeline falha
+      # e o merge é bloqueado
+      - name: Validar versão frontend
         run: |
 
           # Versão atual da PR
@@ -54,7 +86,7 @@ jobs:
           # Busca branch main
           git fetch origin main
 
-          # Extrai package.json da main
+          # Extrai package.json atual da main
           git show origin/main:frontend/package.json > main-package.json
 
           # Versão atual da main
@@ -63,30 +95,44 @@ jobs:
           echo "Versão PR: $PR_VERSION"
           echo "Versão Main: $MAIN_VERSION"
 
-          # Valida se houve alteração
-          if [ "$PR_VERSION" = "$MAIN_VERSION" ]; then
-            echo "ERRO: A versão do sistema não foi alterada. Atualize o campo 'version' do frontend/package.json para prosseguir."
-            exit 1
-          fi
+          # Executa validação semver via Node.js
+          node - <<EOF
 
-      # Instala o Node.js na máquina virtual
-      - name: Instalar Node.js
-        uses: actions/setup-node@v4
+          const pr = "$PR_VERSION";
+          const main = "$MAIN_VERSION";
 
-        # Configurações da action setup-node
-        with:
-          # Versão do Node utilizada
-          node-version: 22
+          function parse(version) {
+            return version.split('.').map(Number);
+          }
 
-          # Habilita cache automático do npm
-          # Isso acelera MUITO as próximas execuções
-          cache: "npm"
+          function compare(a, b) {
+            for (let i = 0; i < 3; i++) {
+              if (a[i] > b[i]) return 1;
+              if (a[i] < b[i]) return -1;
+            }
 
-          # Como existem 2 package-locks,
-          # precisamos informar ambos
-          cache-dependency-path: |
-            frontend/package-lock.json
-            backend/package-lock.json
+            return 0;
+          }
+
+          const prVersion = parse(pr);
+          const mainVersion = parse(main);
+
+          const result = compare(prVersion, mainVersion);
+
+          // Mesma versão
+          if (result === 0) {
+            console.error("ERRO: A versão não foi alterada.");
+            process.exit(1);
+          }
+
+          // Downgrade
+          if (result < 0) {
+            console.error("ERRO: Downgrade de versão não permitido.");
+            process.exit(1);
+          }
+
+          console.log("Versão válida.");
+          EOF
 
       # =========================================================
       # FRONTEND
@@ -131,12 +177,9 @@ jobs:
           # O "&" evita travar a pipeline
           node src/server.js &
 
-          # Espera alguns segundos
-          # para o servidor iniciar
+          # Aguarda inicialização
           sleep 5
 
-      # Faz uma requisição HTTP real no backend
-      # Se a API não responder,
-      # a pipeline falha
+      # Faz teste HTTP real no backend
       - name: Testar backend
         run: curl http://localhost:3333
