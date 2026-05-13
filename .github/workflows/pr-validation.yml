@@ -77,7 +77,7 @@ jobs:
       # Caso inválido:
       # a pipeline falha
       # e o merge é bloqueado
-      - name: Validar versão frontend
+      - name: Validar versão do sistema
         run: |
 
           # Versão atual da PR
