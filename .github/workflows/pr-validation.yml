@@ -1,101 +1,43 @@
-# Nome geral da action/workflow
-# Esse nome aparece na aba "Actions" do GitHub
+# Actions pinned by SHA — last updated: 2026-05-15
+# actions/checkout@v4 -> 34e114876b0b11c390a56381ad16ebd13914f8d5
+# actions/setup-node@v4 -> 49933ea5288caeca8642d1e84afbd3f7d6820020
+
 name: PR Validation
 
-# Evento que dispara a action
 on:
-  # Executa quando existir atividade em Pull Request
   pull_request:
-    # Apenas PRs cujo destino é a branch main
     branches:
       - main
 
-# Lista de jobs da pipeline
 jobs:
-  # ID interno do job
-  # É esse nome que aparece na branch protection
-  validate:
-    # Nome visual do job no GitHub
-    name: Validate Frontend and Backend
-
-    # Sistema operacional da máquina virtual criada pelo GitHub
+  validate-version:
+    name: Validate Version
     runs-on: ubuntu-latest
-
-    # Tempo máximo da execução
-    # Evita pipelines travadas infinitamente
     timeout-minutes: 5
-
-    # Passos executados em sequência
     steps:
-      # Clona repositório
       - name: Clonar repositório
-        uses: actions/checkout@v4
-
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          # Necessário para comparar branches
           fetch-depth: 0
 
-      # =========================================================
-      # NODE
-      # =========================================================
-
-      # Node é instalado antes da validação
-      # pois utilizaremos scripts Node.js
-      # para validar versão semver
       - name: Instalar Node.js
-        uses: actions/setup-node@v4
-
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
-          cache: "npm"
-
-          cache-dependency-path: |
-            frontend/package-lock.json
-            backend/package-lock.json
-
-      # =========================================================
-      # VALIDAÇÃO DE VERSÃO
-      # =========================================================
-
-      # Verifica:
-      #
-      # - se a versão foi alterada
-      # - se a nova versão é maior
-      # - impede downgrade
-      # - impede mesma versão
-      #
-      # Exemplos válidos:
-      # 1.0.0 -> 1.0.1
-      # 1.0.1 -> 1.1.0
-      # 1.1.0 -> 2.0.0
-      #
-      # Exemplos inválidos:
-      # 1.0.0 -> 1.0.0
-      # 1.1.0 -> 1.0.9
-      #
-      # Caso inválido:
-      # a pipeline falha
-      # e o merge é bloqueado
       - name: Validar versão do sistema
         run: |
-
-          # Versão atual da PR
           PR_VERSION=$(node -p "require('./frontend/package.json').version")
 
-          # Busca branch main
           git fetch origin main
 
-          # Extrai package.json atual da main
           git show origin/main:frontend/package.json > main-package.json
 
-          # Versão atual da main
           MAIN_VERSION=$(node -p "require('./main-package.json').version")
 
           echo "Versão PR: $PR_VERSION"
           echo "Versão Main: $MAIN_VERSION"
 
-          # Executa validação semver via Node.js
           node - <<EOF
 
           const pr = "$PR_VERSION";
@@ -119,13 +61,11 @@ jobs:
 
           const result = compare(prVersion, mainVersion);
 
-          // Mesma versão
           if (result === 0) {
             console.error("ERRO: A versão não foi alterada.");
             process.exit(1);
           }
 
-          // Downgrade
           if (result < 0) {
             console.error("ERRO: Downgrade de versão não permitido.");
             process.exit(1);
@@ -134,52 +74,65 @@ jobs:
           console.log("Versão válida.");
           EOF
 
-      # =========================================================
-      # FRONTEND
-      # =========================================================
+  frontend:
+    name: Build Frontend
+    needs: validate-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Clonar repositório
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      # Instala dependências do frontend
+      - name: Instalar Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
       - name: Instalar dependências frontend
-
-        # Executa dentro da pasta frontend
         working-directory: ./frontend
-
-        # npm ci:
-        # - mais rápido
-        # - reproduzível
-        # - ideal para CI/CD
         run: npm ci
 
-      # Gera build do frontend
-      # Se houver erro React/Webpack/Babel/import,
-      # a pipeline falha aqui
       - name: Build frontend
         working-directory: ./frontend
         run: npm run build
 
-      # =========================================================
-      # BACKEND
-      # =========================================================
+  backend:
+    name: Smoke Test Backend
+    needs: validate-version
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Clonar repositório
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      # Instala dependências do backend
+      - name: Instalar Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
+
       - name: Instalar dependências backend
         working-directory: ./backend
         run: npm ci
 
-      # Inicia o backend temporariamente
       - name: Iniciar backend
         working-directory: ./backend
+        run: node src/server.js &
 
-        # "|" permite múltiplas linhas shell
-        run: |
-
-          # Inicia backend em background
-          # O "&" evita travar a pipeline
-          node src/server.js &
-
-          # Aguarda inicialização
-          sleep 5
-
-      # Faz teste HTTP real no backend
       - name: Testar backend
-        run: curl http://localhost:3333
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3333/ | grep -q 'API funcionando'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend não respondeu a tempo"
+          exit 1

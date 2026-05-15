@@ -1,124 +1,86 @@
-# Nome do workflow/action
-# Aparece na aba "Actions" do GitHub
+# Actions pinned by SHA — last updated: 2026-05-15
+# actions/checkout@v4 -> 34e114876b0b11c390a56381ad16ebd13914f8d5
+# actions/setup-node@v4 -> 49933ea5288caeca8642d1e84afbd3f7d6820020
+# softprops/action-gh-release@v2 -> 3bb12739c298aeb8a4eeaf626c5b8d85266b0e65
+
 name: Create Release
 
-# Evento que dispara a action
 on:
-  # Executa quando houver push na branch main
-  # Como vocês usam PR, isso acontecerá após o merge
   push:
     branches:
       - main
 
-# Lista de jobs da pipeline
 jobs:
-  # ID interno do job
   release:
-    # Nome visual exibido no GitHub
     name: Create GitHub Release
-
-    # Sistema operacional da VM temporária
     runs-on: ubuntu-latest
-
-    # Permissões do GITHUB_TOKEN
-    # Necessário para:
-    # - criar tags
-    # - criar releases
+    timeout-minutes: 10
     permissions:
       contents: write
-
-    # Passos executados em sequência
     steps:
-      # Clona o repositório na VM do GitHub
       - name: Clonar repositório
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      # Instala Node.js
       - name: Instalar Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          # Versão do Node utilizada
           node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            frontend/package-lock.json
+            backend/package-lock.json
 
-      # Lê a versão do frontend/package.json
-      #
-      # Exemplo:
-      # "version": "1.0.0"
-      #
-      # Resultado:
-      # v1.0.0
-      #
-      # Esse valor será reutilizado
-      # nos próximos steps
       - name: Ler versão do frontend
         id: package-version
         run: |
-
-          # Lê o campo "version" do package.json
           VERSION=$(node -p "require('./frontend/package.json').version")
-
-          # Salva valor para reutilização futura
           echo "version=v$VERSION" >> $GITHUB_OUTPUT
 
-      # Verifica se a tag já existe
-      #
-      # Isso impede:
-      # - releases duplicadas
-      # - versões repetidas
-      # - sobrescrever releases antigas
-      #
-      # Caso a versão já exista,
-      # a pipeline falha com mensagem amigável
       - name: Verificar se versão já existe
         run: |
-
-          # Atualiza lista de tags do repositório
           git fetch --tags
 
-          # Verifica se já existe uma tag
-          # com a mesma versão
           if git rev-parse "${{ steps.package-version.outputs.version }}" >/dev/null 2>&1
           then
             echo "ERRO: Essa versão já existe!"
             exit 1
           fi
 
-      # Cria uma tag Git automaticamente
-      #
-      # Exemplo:
-      # v1.0.0
-      #
-      # Isso marca oficialmente a versão
-      # do sistema no histórico do Git
+      - name: Instalar dependências frontend
+        working-directory: ./frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: ./frontend
+        run: npm run build
+
+      - name: Instalar dependências backend
+        working-directory: ./backend
+        run: npm ci
+
+      - name: Iniciar backend
+        working-directory: ./backend
+        run: node src/server.js &
+
+      - name: Testar backend
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3333/ | grep -q 'API funcionando'; then
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend não respondeu a tempo"
+          exit 1
+
       - name: Criar tag
         run: |
-
-          # Cria tag local
           git tag ${{ steps.package-version.outputs.version }}
-
-          # Envia tag para o GitHub
           git push origin ${{ steps.package-version.outputs.version }}
 
-      # Cria uma Release no GitHub
-      #
-      # A release aparecerá na aba:
-      # GitHub -> Releases
-      #
-      # Com:
-      # - histórico
-      # - changelog
-      # - data
-      # - tag associada
       - name: Criar release no GitHub
-        uses: softprops/action-gh-release@v2
-
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
-          # Tag utilizada na release
           tag_name: ${{ steps.package-version.outputs.version }}
-
-          # Nome visual da release
           name: Release ${{ steps.package-version.outputs.version }}
-
-          # Faz o GitHub gerar changelog automático
-          # baseado nos commits e PRs
           generate_release_notes: true
